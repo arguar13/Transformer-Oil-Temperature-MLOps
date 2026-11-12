@@ -1,0 +1,99 @@
+[tool.poetry]
+name = "dlinear-mlops-core"
+version = "1.0.0"
+description = "Training, data and tracking pipeline"
+authors = ["Armando Guarnera <contacto@armandoguar.com>"]
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+# Data engineering & tracking
+pandas = "^2.2.0"
+boto3 = "^1.34.0"
+mlflow = "^2.16.0"
+dvc = {extras = ["s3"], version = "^3.55.0"}
+# CPU-only: the default PyPI wheel bundles the whole CUDA runtime
+# (nvidia-cublas/cudnn/cusolver/..., several GB) that never runs here. No node
+# has a GPU (EKS t3.large in terraform/eks.tf, CI runners, the local
+# train.Dockerfile) and train.py falls back to CPU explicitly. That dead weight
+# made the API image ~8.26 GB, caused network timeouts pushing it to ECR and
+# added to the nodes' DiskPressure.
+torch = {version = "^2.3.0", source = "pytorch-cpu"}
+
+# Machine learning & optimisation
+scikit-learn = "^1.5.0"
+joblib = "^1.4.2"
+optuna = "^3.6.0"
+
+# Base dependencies
+pydantic = "^2.9.0"
+numpy = ">=1.26.0,<3.0.0"
+pyyaml = "^6.0.2"
+
+# Observability
+structlog = "^26.1.0"
+tenacity = "^9.1.4"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-cov = "^5.0.0"
+mypy = "^1.11.0"
+ruff = "^0.6.9"
+boto3-stubs = {extras = ["s3"], version = "^1.34.0"}
+pandas-stubs = "^2.2.0"
+types-pyyaml = "^6.0.12"
+
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# ---------------------------------------------------------
+# Quality tools: ruff is linter + formatter (replacing black/isort), import
+# order included (rule "I").
+# ---------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "C4", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.mypy]
+# 3.12, not 3.10: the pipeline runtime stays on `python = "^3.10"`; this only
+# sets the syntax mypy may assume. With 3.10, numpy>=2.5's stubs (PEP 695
+# `type X = ...`) fail to parse with "Type statement is only supported in Python
+# 3.12 and greater", a false positive from the stubs. Ruff
+# (target-version=py310) still catches any 3.10-incompatible syntax.
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+exclude = ["tests/"]
+
+# A global `ignore_missing_imports` does not always silence `import-untyped`
+# (installed package without stubs). `types-pyyaml` is already a dev dependency;
+# this override covers the gap until the lockfile can be regenerated.
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra -q --cov=src --cov-report=term-missing"

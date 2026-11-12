@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dlinear-batch-inference
+spec:
+  schedule: "0 2 * * *"  # every day at 02:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      # Explicit backoff limit: a batch that fails persistently (corrupt data,
+      # a broken contract) is marked failed after 3 attempts instead of
+      # retrying forever.
+      backoffLimit: 3
+      activeDeadlineSeconds: 1800  # 30 min per run at most; no job hangs forever
+      template:
+        metadata:
+          labels:
+            app: dlinear-batch
+        spec:
+          serviceAccountName: dlinear-sa  # S3 access comes from the node group's IAM role (terraform/eks.tf)
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001  # the UID the Dockerfile creates
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: dlinear-batch-container
+            image: dlinear-api:base
+            command: ["python", "-m", "src.batch_inference"]
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            envFrom:
+            - configMapRef:
+                name: dlinear-config
+            resources:
+              requests:
+                memory: "512Mi"
+                cpu: "500m"
+              limits:
+                memory: "1Gi"
+                cpu: "1000m"

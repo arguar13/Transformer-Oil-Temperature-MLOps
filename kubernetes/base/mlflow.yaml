@@ -1,0 +1,97 @@
+# MLflow Tracking Server + Model Registry for production.
+#
+# The official image (ghcr.io/mlflow/mlflow) as is, with no Dockerfile or ECR
+# repository of our own: one image less to build and push. It has no Postgres
+# driver, so the command installs psycopg2-binary before starting the server.
+#
+# Database credentials are NOT committed. The `mlflow-db-credentials` Secret
+# this Deployment references is created imperatively, once per cluster:
+#
+#   kubectl create namespace dlinear-production --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl create secret generic mlflow-db-credentials \
+#     --namespace dlinear-production \
+#     --from-literal=username=<same user as var.db_username in terraform> \
+#     --from-literal=password=<the password Terraform generated for RDS>
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  labels:
+    app: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      serviceAccountName: dlinear-sa
+      containers:
+        - name: mlflow-container
+          image: ghcr.io/mlflow/mlflow:v2.16.0
+          command:
+            - sh
+            - -c
+            - >-
+              pip install --no-cache-dir psycopg2-binary==2.9.9 &&
+              exec mlflow server
+              --backend-store-uri postgresql://$(MLFLOW_DB_USERNAME):$(MLFLOW_DB_PASSWORD)@$(RDS_ENDPOINT)/mlflow_db
+              --default-artifact-root s3://$(MODEL_BUCKET_NAME)/mlflow
+              --host 0.0.0.0
+              --port 5000
+          ports:
+            - containerPort: 5000
+
+          envFrom:
+            - configMapRef:
+                name: dlinear-config
+          env:
+            - name: MLFLOW_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-db-credentials
+                  key: username
+            - name: MLFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mlflow-db-credentials
+                  key: password
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # The exact name MLFLOW_TRACKING_URI resolves through cluster DNS:
+  # mlflow.<namespace>.svc.cluster.local.
+  name: mlflow
+spec:
+  selector:
+    app: mlflow
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP

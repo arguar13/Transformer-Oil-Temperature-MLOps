@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dlinear-production
+
+resources:
+- ../../base
+
+# Extends (does not replace) the base ConfigMap with this environment's values:
+# the deterministic S3 bucket (terraform/s3.tf::model_artifacts_bucket_name)
+# and the RDS endpoint MLflow uses for --backend-store-uri
+# (`terraform output rds_endpoint`). Neither is secret (the RDS password lives in
+# the imperative `mlflow-db-credentials` Secret, outside Git), but both carry
+# account data, so the committed values are placeholders: the `deploy` job fills
+# them in with `kustomize edit set configmap` from the AWS_ACCOUNT_ID and
+# RDS_ENDPOINT CI variables.
+configMapGenerator:
+- behavior: merge
+  literals:
+  - MODEL_BUCKET_NAME=dlinear-forecast-cluster-model-artifacts-REDACTED_ACCOUNT_ID
+  - RDS_ENDPOINT=REDACTED-RDS-ENDPOINT.rds.amazonaws.com:5432
+  name: dlinear-config
+
+# The ONLY thing that changes on every deploy. CI rewrites it structurally with
+# `kustomize edit set image` (never sed or `kubectl set image`) right before
+# `kubectl apply -k` (.gitlab-ci.yml::deploy).
+images:
+- name: dlinear-api
+  newName: REDACTED_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/dlinear-forecast-api
+  newTag: 33b7dea0936f5443fdcacc14de314ff4c94e2a39

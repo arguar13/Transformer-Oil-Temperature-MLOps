@@ -1,0 +1,12 @@
+# LF in the repo regardless of the developer's global git settings (e.g.
+# core.autocrlf=true on Windows), so pre-commit (mixed-line-ending --fix=lf) and
+# the local checkout do not fight on every commit.
+* text=auto eol=lf
+
+# Binary formats: never normalise line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pth binary
+*.pkl binary
+*.joblib binary

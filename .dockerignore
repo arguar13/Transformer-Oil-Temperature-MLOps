@@ -1,0 +1,47 @@
+# Git
+.git
+.gitignore
+
+# Python virtual environments
+venv/
+env/
+.env
+.venv/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Quality-tool caches (never in the production image)
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Tests do not run in the production container
+**/tests/
+
+# ML artifacts (MLflow) and DVC-tracked data
+mlruns/
+mlartifacts/
+core_ml/data/
+core_ml/artifacts*/
+.dvc/
+
+# Local simulated infrastructure, not part of the image
+localstack/
+docker-compose.yml
+
+# Infrastructure files
+.terraform/
+*.tf
+*.tfstate*
+*.tfvars
+
+# Other
+Dockerfile
+README.md

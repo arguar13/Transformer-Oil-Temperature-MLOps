@@ -1,0 +1,135 @@
+# ==============================================================================
+# Local environment: the essentials of AWS with no cost or real credentials.
+# LocalStack stands in for S3 (model artifacts + DVC data), Postgres for RDS, and
+# MLflow and the API run as they do in production.
+# ==============================================================================
+
+services:
+  # Local database, standing in for RDS Postgres
+  postgres:
+    image: postgres:18.3-alpine
+    environment:
+      POSTGRES_DB: mlflow_db
+      POSTGRES_USER: mlopsadmin
+      POSTGRES_PASSWORD: localpassword123  # pragma: allowlist secret (fixed credential for the local stack only)
+    ports:
+      - "5432:5432"
+    # Since Postgres 18 the official image expects the volume at
+    # /var/lib/postgresql (not .../data).
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlopsadmin -d mlflow_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Local S3 (model artifacts + DVC data) in one container: same API as AWS,
+  # no cost, no risk.
+  localstack:
+    image: localstack/localstack:4.14.0
+    environment:
+      SERVICES: s3
+      DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test  # pragma: allowlist secret (fixed LocalStack credential, local stack only)
+      # No PERSISTENCE: it is a paid-edition feature that Community ignores (a
+      # plain `docker compose restart localstack` empties the bucket). S3 state
+      # lives as long as the container, while Postgres (pgdata) keeps the runs
+      # that point to it: after restarting LocalStack, `make reset-local` and
+      # retrain.
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+      # Creates the S3 bucket once LocalStack is ready (see localstack/init/).
+      - ./localstack/init:/etc/localstack/init/ready.d
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 25
+
+  # Tracking server. The official image has no Postgres driver, so the command
+  # installs it before starting (same pattern as kubernetes/base/mlflow.yaml).
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.16.0
+    command: >
+      sh -c "pip install --no-cache-dir psycopg2-binary==2.9.9 &&
+      exec mlflow server --backend-store-uri postgresql://mlopsadmin:localpassword123@postgres/mlflow_db --default-artifact-root s3://mlops-portafolio-proj3-models/mlflow --host 0.0.0.0"  # pragma: allowlist secret (fixed credential for the local stack only)
+    ports:
+      - "5000:5000"
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test  # pragma: allowlist secret (fixed LocalStack credential, local stack only)
+      AWS_DEFAULT_REGION: us-east-1
+      MLFLOW_S3_ENDPOINT_URL: http://localstack:4566
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000')"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+
+  # Local inference API (FastAPI)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # The model is resolved by name + alias in the Model Registry (api/main.py),
+      # not from a fixed S3 path.
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_NAME: dlinear-ett-forecaster
+      MODEL_ALIAS: production
+      # Used by MLflow to download the model artifact from LocalStack.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test  # pragma: allowlist secret (fixed LocalStack credential, local stack only)
+      AWS_DEFAULT_REGION: us-east-1
+      MLFLOW_S3_ENDPOINT_URL: http://localstack:4566
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  # Local training, on Linux like CI's "train" job, so MLflow records artifact
+  # paths with "/" rather than the host's separator (see core_ml/train.Dockerfile).
+  # Not started by "docker compose up" (profile "tools"): run on demand with
+  # "docker compose run --rm trainer ..." (Makefile::train/train-toy/quality-gate).
+  trainer:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: core_ml/train.Dockerfile
+    # Only the code is mounted; dependencies are baked into the image.
+    volumes:
+      - ./core_ml:/workspace
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test  # pragma: allowlist secret (fixed LocalStack credential, local stack only)
+      AWS_DEFAULT_REGION: us-east-1
+      MLFLOW_S3_ENDPOINT_URL: http://localstack:4566
+      # No .git and no git binary here: the commit arrives as GIT_COMMIT_SHA
+      # (Makefile::TRAINER_RUN). This silences GitPython's warning when MLflow
+      # cannot find git.
+      GIT_PYTHON_REFRESH: quiet
+    depends_on:
+      mlflow:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  localstack_data:

@@ -1,0 +1,15 @@
+# Production remote: the deterministic bucket Terraform creates
+# (terraform/s3.tf::model_artifacts_bucket_name =
+# "${project_name}-model-artifacts-${account_id}"), under the dvc-store/ prefix.
+# The account ID is not versioned (public repo), so this is a placeholder: CI's
+# `train` job sets the real URL with `dvc remote modify --local` from
+# AWS_ACCOUNT_ID. On your own machine, run the same command once.
+#
+# Local development against LocalStack (Docker Compose) leaves this file alone
+# and uses `.dvc/config.local` (see config.local.example), which DVC applies on
+# top of it.
+[core]
+    analytics = false
+    remote = s3remote
+['remote "s3remote"']
+    url = s3://dlinear-forecast-cluster-model-artifacts-REDACTED_ACCOUNT_ID/dvc-store

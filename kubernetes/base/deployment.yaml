@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dlinear-api
+  labels:
+    app: dlinear-forecast
+spec:
+  # No `replicas`: the HPA (hpa.yaml, minReplicas: 3) owns the replica count.
+  # Declaring it here would make every `kubectl apply -k` reset the HPA's scale.
+  selector:
+    matchLabels:
+      app: dlinear-forecast
+  template:
+    metadata:
+      labels:
+        app: dlinear-forecast
+    spec:
+      serviceAccountName: dlinear-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001  # the UID the Dockerfile creates
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: dlinear-container
+        # Logical name: each environment's overlay maps it to the real registry
+        # and tag with Kustomize's `images:` transformer (never `sed` or
+        # `kubectl set image`, see kubernetes/overlays/production).
+        image: dlinear-api:base
+        ports:
+        - containerPort: 8000
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+
+        # The API's lifespan loads the model (with retries and backoff) BEFORE it
+        # starts answering, so /health is silent meanwhile. The startupProbe
+        # allows up to ~2 min and holds the livenessProbe back, so a pod that is
+        # just starting is not restarted.
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 5
+          failureThreshold: 24
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 20
+        readinessProbe:
+          # Unlike /health, it only passes once the model is loaded
+          # (api/main.py::readiness_check), so the Service sends no traffic to a
+          # live pod with no model in memory yet.
+          httpGet:
+            path: /ready
+            port: 8000
+          periodSeconds: 10
+
+        resources:
+          # PyTorch + MLflow + pandas alone take 400-500Mi: a 512Mi limit left the
+          # pod on the edge of an OOMKill as soon as traffic arrived.
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+        # All non-sensitive configuration lives in the Kustomize-generated
+        # ConfigMap instead of being embedded per service.
+        envFrom:
+        - configMapRef:
+            name: dlinear-config

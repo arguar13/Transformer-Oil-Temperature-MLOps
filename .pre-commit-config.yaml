@@ -1,0 +1,87 @@
+# Checks before every commit: file hygiene, Python format/lint (ruff), types and
+# each sub-project's unit tests.
+#
+# Local setup:
+#   pip install pre-commit  (or: pipx install pre-commit)
+#   make hooks
+#
+# Deliberately left out to keep the loop simple: a secrets scanner
+# (detect-secrets), a YAML linter (yamllint) and a dependency/image
+# vulnerability scan (trivy or similar). They are the next additions for a
+# production setup.
+
+repos:
+  # ---------------------------------------------------------
+  # File hygiene + YAML/TOML/JSON validation
+  # ---------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ["--allow-multiple-documents", "--unsafe"]
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      - id: check-merge-conflict
+
+  # ---------------------------------------------------------
+  # Python: lint + format (Ruff replaces black/isort/flake8)
+  # ---------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+
+  # ---------------------------------------------------------
+  # Python: type checking (mypy), lightweight, in each sub-project's own Poetry
+  # venv.
+  # ---------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: mypy-api
+        name: mypy (api)
+        entry: bash -c 'cd api && poetry run mypy .'
+        language: system
+        files: ^api/.*\.py$
+        pass_filenames: false
+
+      - id: mypy-core-ml
+        name: mypy (core_ml)
+        entry: bash -c 'cd core_ml && poetry run mypy .'
+        language: system
+        files: ^core_ml/.*\.py$
+        pass_filenames: false
+
+      # -------------------------------------------------------
+      # Python: unit tests (pytest)
+      # -------------------------------------------------------
+      - id: pytest-api
+        name: pytest (api)
+        entry: bash -c 'cd api && poetry run pytest'
+        language: system
+        files: ^api/.*\.py$
+        pass_filenames: false
+
+      - id: pytest-core-ml
+        name: pytest (core_ml)
+        entry: bash -c 'cd core_ml && poetry run pytest'
+        language: system
+        files: ^core_ml/.*\.py$
+        pass_filenames: false
+
+      # -------------------------------------------------------
+      # Infra: Terraform formatting (fmt -check) when IaC changes
+      # -------------------------------------------------------
+      - id: terraform-fmt-check
+        name: terraform fmt -check
+        # if/else, not `A && B || C`: with that form a failing `fmt -check` also
+        # fell through to `|| echo` and the hook exited 0, never blocking.
+        entry: bash -c 'if command -v terraform >/dev/null 2>&1; then terraform -chdir=terraform fmt -check -recursive; else echo "terraform no instalado localmente, omitiendo"; fi'
+        language: system
+        files: ^terraform/.*\.(tf|tftest\.hcl)$
+        pass_filenames: false

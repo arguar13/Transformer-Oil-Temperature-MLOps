@@ -1,0 +1,90 @@
+# ========================
+# Python and machine learning
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+.env
+
+# Quality-tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Heavy artifacts and models belong in MLflow/DVC + S3, not git
+mlruns/
+mlartifacts/
+core_ml/artifacts*/
+*.pth
+*.pt
+*.h5
+*.pkl
+*.joblib
+*.csv
+*.parquet
+
+# ========================
+# Terraform
+# ========================
+# Local state and modules
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Plans saved with -out embed sensitive values (passwords, access keys) in plain
+# text inside the binary.
+tfplan
+*.tfplan
+destroyplan*
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Variable files with secrets
+*.tfvars
+*.tfvars.json
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform CLI configuration
+.terraformrc
+terraform.rc
+
+# ========================
+# IDEs and operating systems
+# ========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ========================
+# Local CI validation
+# ========================
+# Output of `gitlab-ci-local` (make ci-local / ci-local-list): the expanded YAML,
+# not a versioned source of truth.
+.gitlab-ci-local/
+
+# ========================
+# Docker Compose
+# ========================
+# Per-machine port overrides (compose merges them into docker-compose.yml
+# automatically) to avoid collisions with other local stacks.
+docker-compose.override.yml
+
+# Portfolio blog draft (WordPress), images and cover: not part of the repository.
+blog/
+
+# Training run that quality_gate.py evaluates (local, not versioned)
+core_ml/run_id.txt
